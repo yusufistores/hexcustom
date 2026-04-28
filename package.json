@@ -2,7 +2,7 @@
   "name": "hexcustom",
   "private": true,
   "scripts": {
-    "build": "react-router build",
+    "build": "react-router build && prisma migrate deploy",
     "dev": "shopify app dev",
     "config:link": "shopify app config link",
     "generate": "shopify app generate",
