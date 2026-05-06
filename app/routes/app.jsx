@@ -1,7 +1,8 @@
 import { data } from "react-router";
-import { Form, useActionData, useNavigation } from "react-router";
+import { Form, useActionData, useNavigation, useRouteError } from "react-router";
 import { parse } from "csv-parse/sync";
 import { authenticate } from "../shopify.server";
+import { boundary } from "@shopify/shopify-app-react-router/server";
 
 
 //==========================
@@ -119,6 +120,14 @@ async function ensureDefinition(admin, rawType) {
     console.error("Definition creation failed:", e.message);
   }
 
+  return null;
+}
+
+// =========================
+// ✅ LOADER (SERVER) — required for Shopify auth on GET requests
+// =========================
+export async function loader({ request }) {
+  await authenticate.admin(request);
   return null;
 }
 
@@ -259,6 +268,17 @@ export async function action({ request }) {
     return data({ error: "Server error: " + (err?.message || String(err)) });
   }
 }
+
+// =========================
+// ✅ ERROR BOUNDARY — handles auth errors / expired sessions gracefully
+// =========================
+export function ErrorBoundary() {
+  return boundary.error(useRouteError());
+}
+
+export const headers = (headersArgs) => {
+  return boundary.headers(headersArgs);
+};
 
 // =========================
 // ✅ FRONTEND
