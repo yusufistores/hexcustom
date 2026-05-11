@@ -2,11 +2,11 @@
 
 client_id = "682adc4424c460012aea502acecf23d4"
 name = "Hexcustom"
-application_url = "https://example.com"
+application_url = "https://hexcustom.onrender.com"
 embedded = true
 
 [build]
-automatically_update_urls_on_dev = true
+automatically_update_urls_on_dev = false
 include_config_on_deploy = true
 
 [webhooks]
@@ -25,7 +25,7 @@ api_version = "2026-07"
 scopes = "write_products,write_metaobjects,write_metaobject_definitions"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://hexcustom.onrender.com/auth/callback" ]
 
 [product.metafields.app.demo_info]
 type = "single_line_text_field"
