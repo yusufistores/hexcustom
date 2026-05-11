@@ -3,15 +3,19 @@ import { Form, useActionData, useNavigation } from "react-router";
 import { parse } from "csv-parse/sync";
 import { authenticate } from "../shopify.server";
 
-// =========================
+
+//==========================
 // GraphQL Response Parser
-// =========================
+//=======================
 async function parseGraphQL(res) {
   try {
-    if (res && typeof res.json === "function") {
+    // Shopify's admin.graphql() returns a Response-like object with .json()
+    // but it does NOT pass instanceof Response. Always try .json() first.
+    if (res && typeof res.json === 'function') {
       return await res.json();
     }
-    if (typeof res === "object" && res !== null) {
+    // If it's already a parsed object, return it
+    if (typeof res === 'object' && res !== null) {
       return res;
     }
     return res;
@@ -22,7 +26,7 @@ async function parseGraphQL(res) {
 }
 
 // =========================
-// Safe string helper
+// ✅ SAFE HELPER
 // =========================
 function safe(val) {
   if (val === undefined || val === null) return "";
@@ -30,16 +34,18 @@ function safe(val) {
 }
 
 // =========================
-// Ensure metaobject definition exists
+// ✅ Ensure metaobject definition exists
 // =========================
 async function ensureDefinition(admin, rawType) {
+  // Strip any leading namespace:
+  //   "shopify--color-pattern"        → "color-pattern"
+  //   "app--351620202497--color-pattern" → "color-pattern"
   const baseType = rawType
-    .replace(/^shopify--/, "")
-    .replace(/^app--[^-]+-[^-]+--/, "");
-  console.log(
-    `Looking for metaobject definition: raw="${rawType}", base="${baseType}"`
-  );
+    .replace(/^shopify--/, '')           // remove shopify-- prefix
+    .replace(/^app--[^-]+-[^-]+--/, ''); // remove app--ID-- prefix (two segments)
+  console.log(`Looking for metaobject definition: raw="${rawType}", base="${baseType}"`);
 
+  // 1) Try finding by the raw CSV type first
   for (const tryType of [rawType, baseType]) {
     try {
       const res = await admin.graphql(
@@ -62,6 +68,7 @@ async function ensureDefinition(admin, rawType) {
     }
   }
 
+  // 2) Definition doesn't exist → create it
   console.log(`Creating new metaobject definition: "${baseType}"`);
   try {
     const res = await admin.graphql(
@@ -80,24 +87,16 @@ async function ensureDefinition(admin, rawType) {
             type: baseType,
             name: "Color Pattern",
             access: {
-              storefront: "PUBLIC_READ",
+              storefront: "PUBLIC_READ"
             },
             fieldDefinitions: [
               { key: "label", name: "Label", type: "single_line_text_field" },
               { key: "color", name: "Color", type: "color" },
-              {
-                key: "base_color",
-                name: "Base Color",
-                type: "single_line_text_field",
-              },
-              {
-                key: "base_pattern",
-                name: "Base Pattern",
-                type: "single_line_text_field",
-              },
-            ],
-          },
-        },
+              { key: "base_color", name: "Base Color", type: "single_line_text_field" },
+              { key: "base_pattern", name: "Base Pattern", type: "single_line_text_field" }
+            ]
+          }
+        }
       }
     );
     const json = await parseGraphQL(res);
@@ -109,15 +108,11 @@ async function ensureDefinition(admin, rawType) {
     }
 
     if (!json?.data?.metaobjectDefinitionCreate?.metaobjectDefinition) {
-      console.error(
-        "Definition creation returned no definition. Full response:",
-        JSON.stringify(json)
-      );
+      console.error("Definition creation returned no definition. Full response:", JSON.stringify(json));
       return null;
     }
 
-    const actualType =
-      json.data.metaobjectDefinitionCreate.metaobjectDefinition.type;
+    const actualType = json.data.metaobjectDefinitionCreate.metaobjectDefinition.type;
     console.log(`✅ Created definition: ${actualType}`);
     return actualType;
   } catch (e) {
@@ -128,9 +123,11 @@ async function ensureDefinition(admin, rawType) {
 }
 
 // =========================
-// ACTION (SERVER)
+// ✅ ACTION (SERVER)
 // =========================
 export async function action({ request }) {
+  // authenticate.admin() may THROW a Response (redirect to OAuth).
+  // We must let thrown Responses propagate — do NOT catch them.
   const { admin } = await authenticate.admin(request);
 
   try {
@@ -153,15 +150,17 @@ export async function action({ request }) {
       return data({ error: "CSV is empty" });
     }
 
+    // ── Step 1: Ensure the metaobject definition exists ──
     const csvType = safe(records[0]["Metaobject: Type"]);
     const actualType = await ensureDefinition(admin, csvType);
 
     if (!actualType) {
       return data({
-        error: `Could not find or create metaobject definition for type "${csvType}". Check your Shopify app permissions (read_metaobjects, write_metaobjects).`,
+        error: `Could not find or create metaobject definition for type "${csvType}". Check your Shopify app permissions (read_metaobjects, write_metaobjects).`
       });
     }
 
+    // ── Step 2: Import rows ──
     const results = [];
     const seen = new Set();
 
@@ -172,11 +171,13 @@ export async function action({ request }) {
       const baseColor = safe(row["Base color"]);
       const basePattern = safe(row["Base pattern"]);
 
+      // ❌ Required check
       if (!label || !handle || !color) {
         results.push({ handle: handle || "N/A", status: "❌ Missing data" });
         continue;
       }
 
+      // ⚠️ Duplicate CSV
       if (seen.has(handle)) {
         results.push({ handle, status: "⚠️ Duplicate in CSV" });
         continue;
@@ -185,6 +186,7 @@ export async function action({ request }) {
       seen.add(handle);
 
       try {
+        // 🔍 Check if entry already exists
         const check = await admin.graphql(
           `query ($handle: MetaobjectHandleInput!) {
             metaobjectByHandle(handle: $handle) {
@@ -198,7 +200,10 @@ export async function action({ request }) {
 
         if (!checkJson || !checkJson.data) {
           console.error("CHECK QUERY FAILED:", JSON.stringify(checkJson));
-          results.push({ handle, status: "❌ GraphQL check failed" });
+          results.push({
+            handle,
+            status: "❌ GraphQL check failed"
+          });
           continue;
         }
 
@@ -207,6 +212,7 @@ export async function action({ request }) {
           continue;
         }
 
+        // ✅ Create the metaobject entry
         const create = await admin.graphql(
           `mutation ($metaobject: MetaobjectCreateInput!) {
             metaobjectCreate(metaobject: $metaobject) {
@@ -234,7 +240,7 @@ export async function action({ request }) {
 
         if (createJson?.data?.metaobjectCreate?.userErrors?.length) {
           const errMsg = createJson.data.metaobjectCreate.userErrors
-            .map((e) => e.message)
+            .map(e => e.message)
             .join(", ");
           results.push({ handle, status: "❌ " + errMsg });
         } else {
@@ -255,9 +261,9 @@ export async function action({ request }) {
 }
 
 // =========================
-// FRONTEND
+// ✅ FRONTEND
 // =========================
-export default function Index() {
+export default function App() {
   const actionData = useActionData();
   const navigation = useNavigation();
   const isSubmitting = navigation.state === "submitting";
@@ -270,8 +276,7 @@ export default function Index() {
 
       <Form method="post" encType="multipart/form-data">
         <input type="file" name="file" accept=".csv" required />
-        <br />
-        <br />
+        <br /><br />
         <button type="submit" disabled={isSubmitting}>
           {isSubmitting ? "Importing..." : "Import Colors"}
         </button>
@@ -284,8 +289,7 @@ export default function Index() {
 
       {actionData?.definitionType && (
         <p style={{ color: "green" }}>
-          📦 Using metaobject type:{" "}
-          <code>{actionData.definitionType}</code>
+          📦 Using metaobject type: <code>{actionData.definitionType}</code>
         </p>
       )}
 
