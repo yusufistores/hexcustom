@@ -33,7 +33,16 @@ function safe(val) {
   return String(val).trim();
 }
 
-function taxonomyColorValue(value) {
+function readCell(row, names) {
+  for (const name of names) {
+    const value = safe(row[name]);
+    if (value) return value;
+  }
+
+  return "";
+}
+
+function taxonomyListValue(value) {
   const raw = safe(value);
   if (!raw) return "";
   if (raw.startsWith("[")) return raw;
@@ -44,6 +53,22 @@ function taxonomyColorValue(value) {
     .filter(Boolean);
 
   return JSON.stringify(values);
+}
+
+function taxonomySingleValue(value) {
+  const raw = safe(value);
+  if (!raw) return "";
+
+  if (raw.startsWith("[")) {
+    try {
+      const values = JSON.parse(raw);
+      return safe(values[0]);
+    } catch {
+      return raw;
+    }
+  }
+
+  return raw;
 }
 
 // =========================
@@ -183,12 +208,13 @@ export async function action({ request }) {
     const seen = new Set();
 
     for (const row of records) {
-      const label = safe(row["Label"]);
-      const handle = safe(row["Metaobject: Handle"]);
-      const color = safe(row["Color"]);
-      const baseColor = safe(row["Base color"]);
-      const basePattern = safe(row["Base pattern"]);
-      const colorTaxonomyReference = taxonomyColorValue(baseColor);
+      const label = readCell(row, ["Label", "label"]);
+      const handle = readCell(row, ["Metaobject: Handle", "Metaobject Handle", "handle"]);
+      const color = readCell(row, ["Color", "color"]);
+      const baseColor = readCell(row, ["Base color", "Base Color", "color_taxonomy_reference"]);
+      const basePattern = readCell(row, ["Base pattern", "Base Pattern", "pattern_taxonomy_reference"]);
+      const colorTaxonomyReference = taxonomyListValue(baseColor);
+      const patternTaxonomyReference = taxonomySingleValue(basePattern);
 
       // ❌ Required check
       if (!label || !handle || !color || !baseColor || !basePattern) {
@@ -248,7 +274,7 @@ export async function action({ request }) {
                   { key: "label", value: label },
                   { key: "color", value: color },
                   { key: "color_taxonomy_reference", value: colorTaxonomyReference },
-                  { key: "pattern_taxonomy_reference", value: basePattern },
+                  { key: "pattern_taxonomy_reference", value: patternTaxonomyReference },
                 ],
               },
             },
