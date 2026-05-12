@@ -33,16 +33,34 @@ function safe(val) {
   return String(val).trim();
 }
 
+function taxonomyColorValue(value) {
+  const raw = safe(value);
+  if (!raw) return "";
+  if (raw.startsWith("[")) return raw;
+
+  const values = raw
+    .split(";")
+    .map((item) => safe(item))
+    .filter(Boolean);
+
+  return JSON.stringify(values);
+}
+
 // =========================
 // ✅ Ensure metaobject definition exists
 // =========================
 async function ensureDefinition(admin, rawType) {
+  const targetType = "shopify--color-pattern";
+
+  if (!rawType || rawType.startsWith("app--")) {
+    rawType = targetType;
+  }
+
   // Strip any leading namespace:
-  //   "shopify--color-pattern"        → "color-pattern"
+  //   "shopify--color-pattern"        → "shopify--color-pattern"
   //   "app--351620202497--color-pattern" → "color-pattern"
   const baseType = rawType
-    .replace(/^shopify--/, '')           // remove shopify-- prefix
-    .replace(/^app--[^-]+-[^-]+--/, ''); // remove app--ID-- prefix (two segments)
+    .replace(/^app--[^-]+--/, ''); // remove app--ID-- prefix
   console.log(`Looking for metaobject definition: raw="${rawType}", base="${baseType}"`);
 
   // 1) Try finding by the raw CSV type first
@@ -92,8 +110,8 @@ async function ensureDefinition(admin, rawType) {
             fieldDefinitions: [
               { key: "label", name: "Label", type: "single_line_text_field" },
               { key: "color", name: "Color", type: "color" },
-              { key: "base_color", name: "Base Color", type: "single_line_text_field" },
-              { key: "base_pattern", name: "Base Pattern", type: "single_line_text_field" }
+              { key: "color_taxonomy_reference", name: "Base Color", type: "single_line_text_field" },
+              { key: "pattern_taxonomy_reference", name: "Base Pattern", type: "single_line_text_field" }
             ]
           }
         }
@@ -170,9 +188,10 @@ export async function action({ request }) {
       const color = safe(row["Color"]);
       const baseColor = safe(row["Base color"]);
       const basePattern = safe(row["Base pattern"]);
+      const colorTaxonomyReference = taxonomyColorValue(baseColor);
 
       // ❌ Required check
-      if (!label || !handle || !color) {
+      if (!label || !handle || !color || !baseColor || !basePattern) {
         results.push({ handle: handle || "N/A", status: "❌ Missing data" });
         continue;
       }
@@ -228,8 +247,8 @@ export async function action({ request }) {
                 fields: [
                   { key: "label", value: label },
                   { key: "color", value: color },
-                  { key: "base_color", value: baseColor },
-                  { key: "base_pattern", value: basePattern },
+                  { key: "color_taxonomy_reference", value: colorTaxonomyReference },
+                  { key: "pattern_taxonomy_reference", value: basePattern },
                 ],
               },
             },
